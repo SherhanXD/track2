@@ -228,14 +228,74 @@ export async function act(me: Player, b: any): Promise<{ id?: string }> {
   });
 }
 
-// Counts for the Skill's check-in text: invites waiting and battles where it's the player's turn.
+// One thing the student's Cubbie should tell them about: a challenge, their turn after the friend moved,
+// or a battle the friend just finished. Only uses what the game already shows both players
+// (names, moves, damage, HP). Never the friend's Mana, energy total, Shield count or grades.
+export type BattleNews = {
+  id: string;
+  kind: 'challenge' | 'your_turn' | 'result';
+  from: string;
+  text: string;
+  my_hp: number;
+  opp_hp: number;
+  seq: number; // turn_count, so a client can tell a new update from one it already showed
+};
+
+const MOVE_NAME: Record<string, string> = { strike: 'Strike', blast: 'Blast' };
+
+function lastMoveText(e: BattleEvent, from: string): string {
+  if (e.m === 'guard') return `${from} is guarding.`;
+  if (e.m === 'charge') return `${from} charged up.`;
+  if (e.m === 'forfeit') return `${from} claimed the win after you didn't move for ${CLAIM_AFTER_HOURS} hours.`;
+  const move = MOVE_NAME[e.m] ?? e.m;
+  if (e.b) return `Your Shield blocked ${from}'s ${move}.`;
+  if (e.g) return `${from} used ${move}. You guarded: ${e.d} damage.`;
+  return `${from} used ${move}: ${e.d} damage.`;
+}
+
+// For the Skill's check-in text. Keeps the old counts (older clash.py reads them) and adds `items`.
 export async function waitingFor(playerId: string) {
-  const [r] = await q<{ invites: number; your_turn: number }>(
-    `select count(*) filter (where status = 'pending' and opponent = $1)::int as invites,
-            count(*) filter (where status = 'active'
-              and ((challenger = $1 and turn = 'c') or (opponent = $1 and turn = 'o')))::int as your_turn
-     from battles where challenger = $1 or opponent = $1`,
+  const rows = await q<{
+    id: string; status: string; winner: string | null; me_side: Side; turn_count: number;
+    last: BattleEvent | null; my_hp: number; opp_hp: number; opp: string;
+  }>(
+    `select b.id, b.status, b.winner, b.turn_count, b.log -> -1 as last,
+            case when b.challenger = $1 then 'c' else 'o' end as me_side,
+            case when b.challenger = $1 then b.c_hp else b.o_hp end as my_hp,
+            case when b.challenger = $1 then b.o_hp else b.c_hp end as opp_hp,
+            p.display_name as opp
+     from battles b
+     join players p on p.id = case when b.challenger = $1 then b.opponent else b.challenger end
+     where (b.challenger = $1 or b.opponent = $1)
+       and ((b.status = 'pending' and b.opponent = $1)
+         or (b.status = 'active' and ((b.challenger = $1 and b.turn = 'c') or (b.opponent = $1 and b.turn = 'o')))
+         -- Finished by the friend's move in the last day (a check-in runs about once a day).
+         or (b.status = 'done' and b.updated_at > now() - interval '24 hours'
+             and b.log -> -1 ->> 's' <> case when b.challenger = $1 then 'c' else 'o' end))
+     order by b.updated_at desc
+     limit 10`,
     [playerId],
   );
-  return r;
+
+  const items: BattleNews[] = rows.map((r) => {
+    const base = { id: r.id, from: r.opp, my_hp: r.my_hp, opp_hp: r.opp_hp, seq: r.turn_count };
+    if (r.status === 'pending') {
+      return { ...base, kind: 'challenge', text: `${r.opp} challenged you to a Royale battle.` };
+    }
+    const hp = `You ${r.my_hp} HP, ${r.opp} ${r.opp_hp} HP.`;
+    if (r.status === 'done') {
+      const result = r.winner === 'draw' ? "It's a draw." : r.winner === r.me_side ? 'You won.' : `${r.opp} won.`;
+      const move = r.last ? lastMoveText(r.last, r.opp) : '';
+      return { ...base, kind: 'result', text: `${move} ${result}${r.winner === 'draw' ? ` ${hp}` : ''}`.trim() };
+    }
+    // Active and it's my turn. No last move means the friend just accepted and I go first.
+    const lead = r.last ? lastMoveText(r.last, r.opp) : `${r.opp} accepted your challenge.`;
+    return { ...base, kind: 'your_turn', text: `${lead} ${hp} Your move.` };
+  });
+
+  return {
+    invites: items.filter((i) => i.kind === 'challenge').length,
+    your_turn: items.filter((i) => i.kind === 'your_turn').length,
+    items,
+  };
 }

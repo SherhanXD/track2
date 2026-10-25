@@ -29,10 +29,18 @@ const MOVES = [
   { id: 'charge', label: 'Charge', cost: 0, sub: 'gain 25 energy' },
 ] as const;
 
+// Set only on the /demo page: each phone frame is its own page, so this is per frame.
+// Must match DEMO_SESSION_HEADER in lib/http.ts.
+let demoSid = '';
+const fast = () => demoSid !== '';
+
 async function api<T>(path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (body) headers['content-type'] = 'application/json';
+  if (demoSid) headers['x-clash-demo-session'] = demoSid;
   const r = await fetch(path, {
     method: body ? 'POST' : 'GET',
-    headers: body ? { 'content-type': 'application/json' } : undefined,
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store',
   });
@@ -161,7 +169,7 @@ function Home({ st, go }: { st: State; go: (v: View) => void }) {
   return (
     <>
       <div className="title-block">
-        <h1 className="logo">Cubbie<br />Clash</h1>
+        <h1 className="logo">Cubbie<br />Royale</h1>
         <p className="tagline">Your grades power your attacks.</p>
       </div>
 
@@ -231,7 +239,7 @@ function Squad({ st, go, challenge, busy, error }: {
   const [copied, setCopied] = useState(false);
   const code = st.squad?.code;
   const invite = async () => {
-    const text = `Join my Cubbie Clash squad. Tell Cubbie: join clash ${code}`;
+    const text = `Join my Cubbie Royale squad. Tell Cubbie: join clash ${code}`;
     try {
       if (navigator.share) await navigator.share({ text });
       else { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1800); }
@@ -343,7 +351,7 @@ function BattleScreen({ id, st, go, refreshState }: {
 
   useEffect(() => {
     load();
-    const t = setInterval(() => document.visibilityState === 'visible' && load(), 6000);
+    const t = setInterval(() => document.visibilityState === 'visible' && load(), fast() ? 1500 : 6000);
     return () => clearInterval(t);
   }, [load]);
   useEffect(() => {
@@ -498,7 +506,7 @@ function BattleScreen({ id, st, go, refreshState }: {
         {active && !b.my_turn && (
           <div className="banner" style={{ paddingTop: 12 }}>
             <p style={{ margin: 0 }}>
-              {oppName}&apos;s move. Cubbie can&apos;t ping them, so tell them to open their Clash link.
+              {oppName}&apos;s move. Cubbie can&apos;t ping them, so tell them to open their Royale link.
             </p>
             {b.claimable && (
               <div className="actions">
@@ -522,7 +530,8 @@ function BattleScreen({ id, st, go, refreshState }: {
 
 /* ---------- app shell ---------- */
 
-export default function Game() {
+export default function Game({ demoSession }: { demoSession?: string }) {
+  demoSid = demoSession ?? '';
   const [view, setView] = useState<View>({ name: 'home' });
   const [st, setSt] = useState<State | null>(null);
   const [error, setError] = useState('');
@@ -538,7 +547,7 @@ export default function Game() {
 
   const go = useCallback((v: View) => {
     const hash = v.name === 'home' ? '' : v.name === 'squad' ? '#squad' : v.name === 'list' ? '#battles' : `#b/${v.id}`;
-    window.history.pushState(null, '', window.location.pathname + hash);
+    window.history.pushState(null, '', window.location.pathname + window.location.search + hash);
     setError('');
     setView(v);
     window.scrollTo(0, 0);
@@ -557,7 +566,7 @@ export default function Game() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(() => document.visibilityState === 'visible' && refresh(), 15000);
+    const t = setInterval(() => document.visibilityState === 'visible' && refresh(), fast() ? 2000 : 15000);
     return () => clearInterval(t);
   }, [refresh]);
 
@@ -578,7 +587,7 @@ export default function Game() {
   if (!st) {
     return (
       <div className="screen">
-        <div className="title-block"><h1 className="logo">Cubbie<br />Clash</h1></div>
+        <div className="title-block"><h1 className="logo">Cubbie<br />Royale</h1></div>
         <section className="win">
           {error ? <p className="err" role="alert">{error}</p> : <p className="px tiny">Loading</p>}
         </section>
@@ -588,6 +597,8 @@ export default function Game() {
 
   return (
     <div className="screen">
+      {/* Inside the demo's phone frames, hide the desktop scrollbar so it looks like a phone. Still scrolls. */}
+      {demoSession && <style>{'html{scrollbar-width:none}html::-webkit-scrollbar{display:none}'}</style>}
       {view.name === 'home' && <Home st={st} go={go} />}
       {view.name === 'squad' && <Squad st={st} go={go} challenge={challenge} busy={busy} error={error} />}
       {view.name === 'list' && <List st={st} go={go} />}

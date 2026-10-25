@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 const page = (inner: string) =>
   new NextResponse(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cubbie Clash</title></head>
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cubbie Royale</title></head>
 <body style="font-family:ui-monospace,Menlo,monospace;margin:0;padding:40px 24px;background:#1b2169;color:#f8f8ff;min-height:100vh;box-sizing:border-box"><div style="max-width:420px;margin:0 auto;border:4px solid #f4f4ff;border-radius:8px;padding:20px;background:linear-gradient(#2c4ad0,#12208a)">${inner}</div></body></html>`,
     { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
   );
@@ -17,7 +17,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 export async function GET(req: NextRequest) {
   const t = req.nextUrl.searchParams.get('t') ?? '';
   if (!/^[0-9a-f]{48}$/.test(t)) return expired();
-  return page(`<h1>Cubbie Clash</h1><p>Tap to open your game.</p>
+  return page(`<h1>Cubbie Royale</h1><p>Tap to open your game.</p>
 <form method="post" action="/auth/link"><input type="hidden" name="t" value="${esc(t)}">
 <button style="font:inherit;font-size:20px;font-weight:700;padding:14px 28px;border-radius:6px;border:4px solid #fff;background:#ffd33d;color:#14183f;cursor:pointer">Play</button></form>`);
 }

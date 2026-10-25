@@ -58,15 +58,28 @@ export async function makeLink(req: NextRequest, playerId: string): Promise<stri
   return `${origin(req)}/auth/link?t=${t}`;
 }
 
-// The signed-in player from the game's session cookie (set by /auth/link).
-export async function sessionPlayer(req: NextRequest): Promise<Player> {
-  const sid = req.cookies.get('clash_session')?.value ?? '';
-  if (!/^[0-9a-f]{64}$/.test(sid)) throw new HttpError(401, 'Not signed in');
+// Demo mode (the /demo two-phone page) is on only when BOTH dev env vars are set, same as /api/dev/simulate.
+export const demoEnabled = () => process.env.DEV_TOOLS_ENABLED === '1' && !!process.env.DEV_TOOLS_SECRET;
+
+export const DEMO_SESSION_HEADER = 'x-clash-demo-session';
+
+export async function playerForSession(sid: string): Promise<Player | null> {
+  if (!/^[0-9a-f]{64}$/.test(sid)) return null;
   const rows = await q<Player>(
     `select p.id, p.display_name from sessions s join players p on p.id = s.player_id
      where s.token_hash = $1 and s.expires_at > now()`,
     [sha(sid)],
   );
-  if (!rows[0]) throw new HttpError(401, 'Session expired');
-  return rows[0];
+  return rows[0] ?? null;
+}
+
+// The signed-in player from the game's session cookie (set by /auth/link).
+// In demo mode a session can also come from a header, so two phone frames on one laptop can be two players.
+export async function sessionPlayer(req: NextRequest): Promise<Player> {
+  const demoSid = demoEnabled() ? req.headers.get(DEMO_SESSION_HEADER) ?? '' : '';
+  const sid = demoSid || (req.cookies.get('clash_session')?.value ?? '');
+  if (!/^[0-9a-f]{64}$/.test(sid)) throw new HttpError(401, 'Not signed in');
+  const player = await playerForSession(sid);
+  if (!player) throw new HttpError(401, 'Session expired');
+  return player;
 }
